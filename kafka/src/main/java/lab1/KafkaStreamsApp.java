@@ -11,6 +11,7 @@ import org.apache.kafka.streams.state.KeyValueStore;
 import org.apache.kafka.common.utils.Bytes;
 
 import java.util.Properties;
+import java.util.Map;
 
 public class KafkaStreamsApp {
     private static final String INPUT_TOPIC = "coffee_products";
@@ -32,40 +33,42 @@ public class KafkaStreamsApp {
         StreamsBuilder builder = new StreamsBuilder();
         Gson gson = new Gson();
 
-        KStream<String, String> inputStream = builder.stream(INPUT_TOPIC);
-
-        KStream<String, String> highCalorieDrinks = inputStream.filter((key, value) -> {
-            JsonObject json = gson.fromJson(value, JsonObject.class);
-            return json.get("calories").getAsInt() > 200;
-        });
-
-        highCalorieDrinks
-            .groupBy((key, value) -> "total")
-            .count(Materialized.as("high-calorie-count-store"))
-            .toStream()
-            .mapValues(Object::toString)
-            .to(HIGH_CALORIE_COUNT_TOPIC);
-
-        highCalorieDrinks.split()
+        KStream<String, String> inputStream = builder.stream(INPUT_TOPIC);        
+        Map<String, KStream<String, String>> branches = inputStream
+            .filter((key, value) -> {
+                JsonObject json = gson.fromJson(value, JsonObject.class);
+                return json.get("calories").getAsInt() > 200;
+            })
+            .split(Named.as("milk-type-"))
             .branch((key, value) -> {
                 JsonObject json = gson.fromJson(value, JsonObject.class);
                 return json.get("milk").getAsInt() == 0;
-            }, Branched.withConsumer(ks -> ks.to(NO_MILK_TOPIC)))
+            }, Branched.as("no-milk"))
             .branch((key, value) -> {
                 JsonObject json = gson.fromJson(value, JsonObject.class);
                 return json.get("milk").getAsInt() == 5;
-            }, Branched.withConsumer(ks -> ks.to(COCONUT_MILK_TOPIC)))
+            }, Branched.as("coconut-milk"))
             .branch((key, value) -> {
                 JsonObject json = gson.fromJson(value, JsonObject.class);
                 int milk = json.get("milk").getAsInt();
                 return milk != 0 && milk != 5;
-            }, Branched.withConsumer(ks -> ks.to(OTHER_MILK_TOPIC)));
+            }, Branched.as("other-milk"))
+            .noDefaultBranch();        
+        branches.get("milk-type-no-milk").to(NO_MILK_TOPIC);
+        branches.get("milk-type-coconut-milk").to(COCONUT_MILK_TOPIC);
+        branches.get("milk-type-other-milk").to(OTHER_MILK_TOPIC);
 
         inputStream
             .filter((key, value) -> {
                 JsonObject json = gson.fromJson(value, JsonObject.class);
-                return json.get("milk").getAsInt() == 0;
+                return json.get("calories").getAsInt() > 200;
             })
+            .groupBy((key, value) -> "total")
+            .count(Materialized.as("high-calorie-count-store"))
+            .toStream()
+            .mapValues(Object::toString)
+            .to(HIGH_CALORIE_COUNT_TOPIC);        
+        branches.get("milk-type-no-milk")
             .groupBy((key, value) -> "total")
             .aggregate(
                 () -> 0,

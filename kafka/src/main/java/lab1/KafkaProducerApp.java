@@ -12,11 +12,9 @@ public class KafkaProducerApp {
         properties.put("key.serializer", "org.apache.kafka.common.serialization.StringSerializer");
         properties.put("value.serializer", "org.apache.kafka.common.serialization.StringSerializer");
 
-        KafkaProducer<String, String> producer = new KafkaProducer<>(properties);
-
-        Random rand = new Random();
+        KafkaProducer<String, String> producer = new KafkaProducer<>(properties);        Random rand = new Random();
         for (int i = 0; i < 100; i++) {
-            String productName = "Product" + (rand.nextInt(10) + 1);
+            String productName = "Product" + (i + 1);
             int milkType;
             int milkSelector = rand.nextInt(10);
             if (milkSelector < 2) {
